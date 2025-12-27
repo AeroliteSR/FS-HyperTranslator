@@ -47,11 +47,9 @@ async def processHyperTranslations(text: str, text_id: int) -> str:
     if text in RerollOverride:
         return RerollOverride[text]
 
-    key = str(text_id)
-
-    if key in cache:
+    if text_id in cache:
         print('Skipping from cache')
-        return cache[key]
+        return cache[text_id]
 
     async with semaphore:
         src = STARTING_LANGUAGE
@@ -66,7 +64,7 @@ async def processHyperTranslations(text: str, text_id: int) -> str:
         final = await translate(current, src, FINAL_LANGUAGE)
         translated = final.text
 
-        cache[key] = translated
+        cache[text_id] = translated
         print(f"{text} translated to: {final.text}")
         #save_cache() # NOTE: uncomment to backup cache on every translation
 
@@ -125,7 +123,7 @@ async def main():
         await main
 
 if __name__ == "__main__":
-    cache: dict[str, str] = {}
+    cache: dict[int, str] = {}
     if os.path.exists(CACHE_FILE):
         with open(CACHE_FILE, "r", encoding="utf-8") as f:
             cache = json.load(f)
