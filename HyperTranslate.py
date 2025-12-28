@@ -2,11 +2,14 @@ import random
 import asyncio
 import json
 import os
+import sys
+from pathlib import Path
 from typing import Any
 from googletrans import LANGUAGES, Translator
 import tempfile
+from collections import defaultdict
 
-PATH = r"C:\Users\Aero\Downloads\HyperTranslate\runs" # path to file or folder to process in main()
+PATH = r"C:\Users\Aero\Downloads\HyperTranslate" # path to file or folder to process in main()
 TRANSLATION_TIMES = 6 # how many times to hypertranslate
 MAX_CONCURRENT_TRANSLATIONS = 5 # how many translations to do at once
 # try to keep the product of these numbers below 50 or you might get rate limited by google
@@ -15,7 +18,7 @@ STARTING_LANGUAGE = "English"
 FINAL_LANGUAGE = "English"
 
 # Dont change:
-CACHE_FILE = "translation_cache.json"
+CACHE_FILE = Path(sys.argv[0]).parent / "translation_cache.json"
 translator = Translator()
 languages = [lang for lang in LANGUAGES if lang != STARTING_LANGUAGE]
 semaphore = asyncio.Semaphore(MAX_CONCURRENT_TRANSLATIONS)
@@ -28,7 +31,7 @@ def save_cache():
     with open(CACHE_FILE, "w", encoding="utf-8") as f:
         json.dump(cache, f, ensure_ascii=False, indent=2)
 
-async def translate(text: str, src: str, dest: str, retries: int = 3):
+async def translate(text: str, src: str, dest: str, retries: int = 3) -> str:
     for attempt in range(retries):
         try:
             return await translator.translate(text, src=src, dest=dest)
@@ -40,16 +43,19 @@ async def translate(text: str, src: str, dest: str, retries: int = 3):
                 raise
             await asyncio.sleep(0.3 * (attempt + 1))
 
-async def processHyperTranslations(text: str, text_id: int) -> str:
-    if not text or not len(set(text)) > 1:
+async def processHyperTranslations(text: str, text_id: int, name: str) -> str:
+    global cache
+    text_id = str(text_id) # json.dump converts integer keys to strings
+
+    if not text or not len(set(text)) > 1 or text == '<?null?>':
         return text
     
     if text in RerollOverride:
         return RerollOverride[text]
 
-    if text_id in cache:
-        print('Skipping from cache')
-        return cache[text_id]
+    if text_id in cache[name]:
+        print(f'Skipping from cache; {name} - id {text_id}')
+        return cache[name][text_id]
 
     async with semaphore:
         src = STARTING_LANGUAGE
@@ -64,28 +70,32 @@ async def processHyperTranslations(text: str, text_id: int) -> str:
         final = await translate(current, src, FINAL_LANGUAGE)
         translated = final.text
 
-        cache[text_id] = translated
+        cache[name][text_id] = translated
         print(f"{text} translated to: {final.text}")
-        #save_cache() # NOTE: uncomment to backup cache on every translation
+        save_cache() # NOTE: uncomment to backup cache on every translation
 
         return translated
 
-async def replaceFields(data: Any) -> Any:
+async def replaceFields(data: Any, name: str | None = None) -> Any:
     if isinstance(data, dict):
         new = {}
+
+        if isinstance(data.get("Name"), str):
+            name = data["Name"]
+        
         text = data.get("Text")
         text_id = data.get("ID")
 
         for k, v in data.items():
-            if (k == "Text" and isinstance(text, str) and isinstance(text_id, int)):
-                new[k] = await processHyperTranslations(text, text_id)
+            if (k == "Text" and isinstance(text, str) and isinstance(text_id, int) and name is not None):
+                new[k] = await processHyperTranslations(text, text_id, name)
             else:
-                new[k] = await replaceFields(v)
+                new[k] = await replaceFields(v, name)
 
         return new
 
     if isinstance(data, list):
-        return [await replaceFields(item) for item in data]
+        return [await replaceFields(item, name) for item in data]
 
     return data
 
@@ -117,13 +127,15 @@ async def processFolder(folder: str, suffix="_updated"):
 async def main():
     try:
         await processFolder(PATH)
-    except:
+    except Exception as e:
+        print(e)
         save_cache()
         await asyncio.sleep(10.0)
-        await main
+        await main()
 
 if __name__ == "__main__":
-    cache: dict[int, str] = {}
+    cache: dict[str, dict[str, str]] = defaultdict(dict)
+
     if os.path.exists(CACHE_FILE):
         with open(CACHE_FILE, "r", encoding="utf-8") as f:
             cache = json.load(f)
