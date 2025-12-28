@@ -125,13 +125,14 @@ async def processFolder(folder: str, suffix="_updated"):
             await processFile(src, dst)
 
 async def main():
-    try:
-        await processFolder(PATH)
-    except Exception as e:
-        print(e)
-        save_cache()
-        await asyncio.sleep(10.0)
-        await main()
+    while True:
+        try:
+            await processFolder(PATH)
+            break
+        except Exception as e:
+            print(e)
+            save_cache()
+            await asyncio.sleep(10.0)
 
 if __name__ == "__main__":
     cache: dict[str, dict[str, str]] = defaultdict(dict)
