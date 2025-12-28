@@ -45,7 +45,6 @@ async def translate(text: str, src: str, dest: str, retries: int = 3) -> str:
 
 async def processHyperTranslations(text: str, text_id: int, name: str) -> str:
     global cache
-    text_id = str(text_id) # json.dump converts integer keys to strings
 
     if not text or not len(set(text)) > 1 or text == '<?null?>':
         return text
@@ -53,6 +52,7 @@ async def processHyperTranslations(text: str, text_id: int, name: str) -> str:
     if text in RerollOverride:
         return RerollOverride[text]
 
+    text_id = str(text_id) # json.dump converts integer keys to strings
     if text_id in cache[name]:
         print(f'Skipping from cache; {name} - id {text_id}')
         return cache[name][text_id]
