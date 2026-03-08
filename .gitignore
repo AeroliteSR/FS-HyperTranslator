@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 
 Vanilla exports/
+Completed/
 
 # C extensions
 *.so

@@ -10,11 +10,11 @@ import tempfile
 from collections import defaultdict
 
 PATH = r"C:\Users\Aero\Downloads\HyperTranslate" # path to file or folder to process in main()
-TRANSLATION_TIMES = 6 # how many times to hypertranslate
-MAX_CONCURRENT_TRANSLATIONS = 5 # how many translations to do at once
+TRANSLATION_TIMES = 1 # how many times to hypertranslate
+MAX_CONCURRENT_TRANSLATIONS = 10 # how many translations to do at once
 # try to keep the product of these numbers below 50 or you might get rate limited by google
 
-STARTING_LANGUAGE = "English"
+STARTING_LANGUAGE = "Japanese"
 FINAL_LANGUAGE = "English"
 
 # Dont change:
@@ -22,9 +22,10 @@ CACHE_FILE = Path(sys.argv[0]).parent / "translation_cache.json"
 translator = Translator()
 languages = [lang for lang in LANGUAGES if lang != STARTING_LANGUAGE]
 semaphore = asyncio.Semaphore(MAX_CONCURRENT_TRANSLATIONS)
+CURRENT_CACHE_NUM = 0
 
 RerollOverride = { # a way to guarantee certain past translations if you like them
-    "The Dragon's Heritage.": "Germany will be ours."
+    #"The Dragon's Heritage.": "Germany will be ours."
 }
 
 def save_cache():
@@ -43,8 +44,8 @@ async def translate(text: str, src: str, dest: str, retries: int = 3) -> str:
                 raise
             await asyncio.sleep(0.3 * (attempt + 1))
 
-async def processHyperTranslations(text: str, text_id: int, name: str) -> str:
-    global cache
+async def processHyperTranslations(text: str, text_id: int, name: str, cacheTime: int = 50) -> str:
+    global cache, CURRENT_CACHE_NUM
 
     if not text or not len(set(text)) > 1 or text == '<?null?>':
         return text
@@ -72,7 +73,12 @@ async def processHyperTranslations(text: str, text_id: int, name: str) -> str:
 
         cache[name][text_id] = translated
         print(f"{text} translated to: {final.text}")
-        save_cache() # NOTE: uncomment to backup cache on every translation
+
+        if CURRENT_CACHE_NUM == cacheTime:
+            save_cache() # NOTE: uncomment to backup cache on every translation
+            CURRENT_CACHE_NUM = 0
+        else:
+            CURRENT_CACHE_NUM += 1
 
         return translated
 
@@ -82,13 +88,17 @@ async def replaceFields(data: Any, name: str | None = None) -> Any:
 
         if isinstance(data.get("Name"), str):
             name = data["Name"]
-        
-        text = data.get("Text")
-        text_id = data.get("ID")
 
         for k, v in data.items():
-            if (k == "Text" and isinstance(text, str) and isinstance(text_id, int) and name is not None):
-                new[k] = await processHyperTranslations(text, text_id, name)
+            if k == "Name" and isinstance(v, str) and name is not None:
+                text_id = data.get("ID", "N/A")
+                try:
+                    text_id = int(text_id)
+                except:
+                    text_id = "N/A"
+
+                new[k] = await processHyperTranslations(v, text_id, name)
+
             else:
                 new[k] = await replaceFields(v, name)
 
@@ -104,7 +114,7 @@ async def processFile(file_input: str, file_output: str):
         print(f"Skipping completed file: {file_output}")
         return
 
-    with open(file_input, "r", encoding="utf-8") as f:
+    with open(file_input, "r", encoding="utf-8-sig") as f:
         data = json.load(f)
 
     updated_data = await replaceFields(data)
@@ -124,6 +134,11 @@ async def processFolder(folder: str, suffix="_updated"):
             dst = os.path.join(folder, f"{name}{suffix}{ext}")
             await processFile(src, dst)
 
+def detectEncoding(PATH):
+    import chardet
+    with open(f"{PATH}/shared_enums.json", "rb") as f:
+        print(chardet.detect(f.read()))
+
 async def main():
     while True:
         try:
@@ -139,6 +154,6 @@ if __name__ == "__main__":
 
     if os.path.exists(CACHE_FILE):
         with open(CACHE_FILE, "r", encoding="utf-8") as f:
-            cache = json.load(f)
+            cache = defaultdict(dict, json.load(f))
 
     asyncio.run(main())
